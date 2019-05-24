@@ -3,28 +3,29 @@ package jp.ac.titech.itpro.sdl.map;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.design.widget.FloatingActionButton;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.util.Log;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationCallback;
-import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
-import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.*;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.tasks.SuccessContinuation;
+import com.google.android.gms.tasks.Task;
 
 public class MainActivity extends AppCompatActivity implements OnMapReadyCallback,
         GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
@@ -41,16 +42,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     private GoogleApiClient apiClient;
     private FusedLocationProviderClient locationClient;
-    private LocationRequest request;
-    private LocationCallback callback;
-
-    private enum State {
-        STOPPED,
-        REQUESTING,
-        STARTED
-    }
-    private State state = State.STOPPED;
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,29 +64,13 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
         locationClient = LocationServices.getFusedLocationProviderClient(this);
 
-        request = new LocationRequest();
-        request.setInterval(10000L);
-        request.setFastestInterval(5000L);
-        request.setPriority(LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY);
-
-        callback = new LocationCallback() {
+        final FloatingActionButton gpsButton = findViewById(R.id.gps_button);
+        gpsButton.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onLocationResult(LocationResult locationResult) {
-                Log.d(TAG, "onLocationResult");
-                if (locationResult == null) {
-                    Log.d(TAG, "onLocationResult: locationResult == null");
-                    return;
-                }
-                Location location = locationResult.getLastLocation();
-                LatLng ll = new LatLng(location.getLatitude(), location.getLongitude());
-                infoView.setText(getString(R.string.latlng_format, ll.latitude, ll.longitude));
-                if (map == null) {
-                    Log.d(TAG, "onLocationResult: map == null");
-                    return;
-                }
-                map.animateCamera(CameraUpdateFactory.newLatLng(ll));
+            public void onClick(View v) {
+                locationUpdate(false);
             }
-        };
+        });
     }
 
     @Override
@@ -109,19 +84,11 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     protected void onResume() {
         super.onResume();
         Log.d(TAG, "onResume");
-        if (state != State.STARTED && apiClient.isConnected()) {
-            startLocationUpdate(true);
-        } else {
-            state = State.REQUESTING;
-        }
     }
 
     @Override
     protected void onPause() {
         Log.d(TAG, "onPause");
-        if (state == State.STARTED) {
-            stopLocationUpdate();
-        }
         super.onPause();
     }
 
@@ -142,9 +109,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     @Override
     public void onConnected(@Nullable Bundle bundle) {
         Log.d(TAG, "onConnected");
-        if (state == State.REQUESTING) {
-            startLocationUpdate(true);
-        }
+        locationUpdate(true);
     }
 
     @Override
@@ -157,8 +122,8 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         Log.d(TAG, "onConnectionFailed");
     }
 
-    private void startLocationUpdate(boolean reqPermission) {
-        Log.d(TAG, "startLocationUpdate");
+    private void locationUpdate(boolean reqPermission) {
+        Log.d(TAG, "locationUpdate");
         for (String permission : PERMISSIONS) {
             if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
                 if (reqPermission) {
@@ -170,8 +135,24 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 return;
             }
         }
-        locationClient.requestLocationUpdates(request, callback, null);
-        state = State.STARTED;
+        locationClient.getLastLocation().onSuccessTask(new SuccessContinuation<Location, Void>() {
+            @NonNull
+            @Override
+            public Task<Void> then(@Nullable Location location) {
+                if (location == null) {
+                    Log.d(TAG, "locationUpdate: location == null");
+                    return null;
+                }
+                LatLng ll = new LatLng(location.getLatitude(), location.getLongitude());
+                infoView.setText(getString(R.string.latlng_format, ll.latitude, ll.longitude));
+                if (map == null) {
+                    Log.d(TAG, "locationUpdate: map == null");
+                    return null;
+                }
+                map.animateCamera(CameraUpdateFactory.newLatLng(ll));
+                return null;
+            }
+        });
     }
 
     @Override
@@ -179,14 +160,9 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         Log.d(TAG, "onRequestPermissionsResult");
         switch (reqCode) {
             case REQ_PERMISSIONS:
-                startLocationUpdate(false);
+                locationUpdate(false);
                 break;
         }
     }
 
-    private void stopLocationUpdate() {
-        Log.d(TAG, "stopLocationUpdate");
-        locationClient.removeLocationUpdates(callback);
-        state = State.STOPPED;
-    }
 }
